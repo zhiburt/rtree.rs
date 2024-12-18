@@ -107,10 +107,14 @@ where
     }
     fn on_edge(&self, rect: &Rect<D, C>) -> bool {
         for i in 0..D {
-            if !(rect.min[i] > self.min[i]) || !(rect.max[i] < self.max[i]) {
+            let higher = rect.min[i] > self.min[i];
+            let lower = rect.max[i] < self.max[i];
+
+            if !higher || !lower {
                 return true;
             }
         }
+
         false
     }
     fn area(&self) -> C {
@@ -151,7 +155,7 @@ where
 
 impl<const D: usize, C: Copy + Default> Default for Rect<D, C> {
     fn default() -> Rect<D, C> {
-        Rect{
+        Rect {
             min: [Default::default(); D],
             max: [Default::default(); D],
         }
@@ -163,7 +167,7 @@ where
     C: PartialOrd + Copy + Default,
 {
     Item(T),
-    Nodes(Box<Vec<Node<D, C, T>>>),
+    Nodes(Vec<Node<D, C, T>>),
 }
 
 struct Node<const D: usize, C, T>
@@ -180,8 +184,8 @@ where
 {
     fn new(rect: Rect<D, C>) -> Node<D, C, T> {
         Node {
-            rect: rect,
-            data: Data::Nodes(Box::new(Vec::with_capacity(MAX_ITEMS))),
+            rect,
+            data: Data::Nodes(Vec::with_capacity(MAX_ITEMS)),
         }
     }
     fn len(&self) -> usize {
@@ -216,9 +220,9 @@ where
         let mut jenlargement = rect.min[0];
         let mut jarea = rect.min[0];
         let nodes = self.nodes();
-        for i in 0..nodes.len() {
-            let uarea = nodes[i].rect.unioned_area(rect);
-            let area = nodes[i].rect.area();
+        for (i, node) in nodes.iter().enumerate() {
+            let uarea = node.rect.unioned_area(rect);
+            let area = node.rect.area();
             let enlargement = uarea - area;
             if i == 0 || enlargement < jenlargement || (enlargement == jenlargement && area < jarea)
             {
@@ -233,13 +237,13 @@ where
         if D == 0 {
             return 0;
         }
-        self.choose_least_enlargement(&rect)
+        self.choose_least_enlargement(rect)
     }
     fn insert(&mut self, rect: Rect<D, C>, data: T, height: usize) {
         if height == 0 {
             // leaf node
             self.nodes_mut().push(Node {
-                rect: rect,
+                rect,
                 data: Data::Item(data),
             });
         } else {
@@ -259,12 +263,12 @@ where
     }
     fn recalc(&mut self) {
         let nodes = self.nodes_mut();
-        if nodes.len() == 0 {
+        if nodes.is_empty() {
             return;
         }
         let mut rect = nodes[0].rect;
-        for i in 1..nodes.len() {
-            rect.expand(&nodes[i].rect);
+        for node in nodes.iter().skip(1) {
+            rect.expand(&node.rect);
         }
         self.rect = rect
     }
@@ -380,17 +384,18 @@ where
     }
     pub fn search_flat<'a>(&'a self, rect: &Rect<D, C>, items: &mut Vec<(Rect<D, C>, &'a T)>) {
         let nodes = self.nodes();
-        for i in 0..nodes.len() {
-            if nodes[i].rect.intersects(&rect) {
-                match &nodes[i].data {
-                    Data::Item(data) => items.push((nodes[i].rect, data)),
-                    _ => nodes[i].search_flat(&rect, items),
+        for node in nodes.iter() {
+            if node.rect.intersects(rect) {
+                match &node.data {
+                    Data::Item(data) => items.push((node.rect, data)),
+                    _ => node.search_flat(rect, items),
                 }
             }
         }
     }
 }
 
+#[derive(Default)]
 pub struct RTree<const D: usize, C, T: PartialEq>
 where
     C: PartialOrd + Copy + Default,
@@ -414,11 +419,11 @@ where
     pub fn len(&self) -> usize {
         self.length
     }
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
     pub fn rect(&self) -> Option<Rect<D, C>> {
-        match &self.root {
-            Some(root) => Some(root.rect),
-            None => None,
-        }
+        self.root.as_ref().map(|root| root.rect)
     }
     pub fn insert(&mut self, rect: Rect<D, C>, data: T) {
         if self.root.is_none() {
@@ -441,9 +446,8 @@ where
         if let Some(root) = &mut self.root {
             let mut reinsert = Vec::new();
             let (removed, recalced) = root.remove(&rect, data, &mut reinsert, self.height);
-            if removed.is_none() {
-                return None;
-            }
+            removed.as_ref()?;
+
             self.length -= reinsert.len() + 1;
             if self.length == 0 {
                 self.root = None;
@@ -493,13 +497,13 @@ where
         ScanIterator::new(&self.root, self.height)
     }
 
-    pub fn search<'a>(&self, rect: Rect<D, C>) -> SearchIterator<D, C, T> {
+    pub fn search(&self, rect: Rect<D, C>) -> SearchIterator<D, C, T> {
         SearchIterator::new(&self.root, self.height, rect)
     }
 
-    pub fn nearby<'a, F>(&'a self, dist: F) -> NearbyIterator<D, C, T, F>
+    pub fn nearby<F>(&self, dist: F) -> NearbyIterator<D, C, T, F>
     where
-        F: FnMut(Rect<D, C>, Option<&'a T>) -> C,
+        F: FnMut(Rect<D, C>, Option<&'_ T>) -> C,
     {
         NearbyIterator::new(&self.root, dist)
     }
@@ -558,27 +562,30 @@ where
 {
     type Item = IterItem<'a, D, C, T>;
     fn next(&mut self) -> Option<Self::Item> {
-        'outer: while let Some(stack) = &mut self.stack.last_mut() {
-            for i in stack.index..stack.nodes.len() {
-                stack.index = i + 1;
-                if let Data::Item(data) = &stack.nodes[i].data {
-                    return Some(IterItem {
-                        rect: stack.nodes[i].rect,
-                        data,
-                        dist: Default::default(),
-                    });
-                }
-                let snode = StackNode {
-                    nodes: match &stack.nodes[i].data {
-                        Data::Nodes(nodes) => nodes,
-                        _ => unreachable!(),
-                    },
-                    index: 0,
-                };
-                self.stack.push(snode);
-                continue 'outer;
+        while let Some(stack) = &mut self.stack.last_mut() {
+            if stack.index == stack.nodes.len() {
+                self.stack.pop();
+                continue;
             }
-            self.stack.pop();
+
+            let i = stack.index;
+            stack.index += 1;
+
+            if let Data::Item(data) = &stack.nodes[i].data {
+                return Some(IterItem {
+                    rect: stack.nodes[i].rect,
+                    data,
+                    dist: Default::default(),
+                });
+            }
+            let snode = StackNode {
+                nodes: match &stack.nodes[i].data {
+                    Data::Nodes(nodes) => nodes,
+                    _ => unreachable!(),
+                },
+                index: 0,
+            };
+            self.stack.push(snode);
         }
         None
     }
@@ -708,21 +715,21 @@ where
                 Data::Item(data) => {
                     return Some(IterItem {
                         rect: item.node.rect,
-                        data: data,
+                        data,
                         dist: item.dist,
                     });
                 }
                 Data::Nodes(nodes) => {
-                    for i in 0..nodes.len() {
+                    for node in nodes.iter() {
                         self.queue.push(NearbyItem {
                             dist: (self.dist)(
-                                nodes[i].rect,
-                                match &nodes[i].data {
+                                node.rect,
+                                match &node.data {
                                     Data::Item(data) => Some(data),
                                     _ => None,
                                 },
                             ),
-                            node: &nodes[i],
+                            node,
                         });
                     }
                 }
