@@ -389,10 +389,7 @@ where
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
-pub struct RTree<const D: usize, C, T: PartialEq>
-where
-    C: PartialOrd + Copy + Default,
-{
+pub struct RTree<const D: usize, C, T: PartialEq> {
     root: Option<Node<D, C, T>>,
     length: usize,
     height: usize,
@@ -502,10 +499,7 @@ where
     }
 }
 
-struct StackNode<'a, const D: usize, C, T>
-where
-    C: PartialOrd + Copy + Sub<Output = C> + Mul<Output = C> + Default,
-{
+struct StackNode<'a, const D: usize, C, T> {
     nodes: &'a [Node<D, C, T>],
     index: usize,
 }
@@ -531,10 +525,7 @@ where
 
 // scan iterator
 
-pub struct ScanIterator<'a, const D: usize, C, T>
-where
-    C: PartialOrd + Copy + Sub<Output = C> + Mul<Output = C> + Default,
-{
+pub struct ScanIterator<'a, const D: usize, C, T> {
     stack: Vec<StackNode<'a, D, C, T>>,
 }
 
@@ -584,10 +575,7 @@ where
 
 // search iterator -- much like the scan iterator but with a intersects guard.
 
-pub struct SearchIterator<'a, const D: usize, C, T>
-where
-    C: PartialOrd + Copy + Sub<Output = C> + Mul<Output = C> + Default,
-{
+pub struct SearchIterator<'a, const D: usize, C, T> {
     stack: Vec<StackNode<'a, D, C, T>>,
     rect: Rect<D, C>,
 }
@@ -643,10 +631,7 @@ where
     }
 }
 
-struct NearbyItem<'a, const D: usize, C, T>
-where
-    C: PartialOrd + Copy + Default,
-{
+struct NearbyItem<'a, const D: usize, C, T> {
     dist: C,
     node: &'a Node<D, C, T>,
 }
