@@ -13,11 +13,8 @@ use std::ops::Sub;
 const MAX_ITEMS: usize = 32;
 const MIN_ITEMS: usize = MAX_ITEMS * 20 / 100;
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub struct Rect<const D: usize, C>
-where
-    C: Default,
-{
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Rect<const D: usize, C> {
     pub min: [C; D],
     pub max: [C; D],
 }
@@ -162,18 +159,14 @@ impl<const D: usize, C: Copy + Default> Default for Rect<D, C> {
     }
 }
 
-enum Data<const D: usize, C, T>
-where
-    C: PartialOrd + Copy + Default,
-{
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Data<const D: usize, C, T> {
     Item(T),
     Nodes(Vec<Node<D, C, T>>),
 }
 
-struct Node<const D: usize, C, T>
-where
-    C: PartialOrd + Copy + Default,
-{
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Node<const D: usize, C, T> {
     rect: Rect<D, C>,
     data: Data<D, C, T>,
 }
@@ -395,7 +388,7 @@ where
     }
 }
 
-#[derive(Default)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct RTree<const D: usize, C, T: PartialEq>
 where
     C: PartialOrd + Copy + Default,
