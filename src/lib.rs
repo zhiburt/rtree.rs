@@ -165,6 +165,22 @@ enum Data<const D: usize, C, T> {
     Nodes(Vec<Node<D, C, T>>),
 }
 
+impl<const D: usize, C, T> Data<D, C, T> {
+    fn as_item(&self) -> Option<&T> {
+        match self {
+            Data::Item(item) => Some(item),
+            Data::Nodes(_) => None,
+        }
+    }
+
+    fn as_nodes(&self) -> Option<&Vec<Node<D, C, T>>> {
+        match self {
+            Data::Nodes(nodes) => Some(nodes),
+            Data::Item(_) => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Node<const D: usize, C, T> {
     rect: Rect<D, C>,
@@ -373,6 +389,7 @@ where
                 return (removed, recalced);
             }
         }
+
         (None, false)
     }
     pub fn search_flat<'a>(&'a self, rect: &Rect<D, C>, items: &mut Vec<(Rect<D, C>, &'a T)>) {
@@ -469,10 +486,16 @@ where
 
 // iterartors, ScanIterator, SearcIterator, NearbyIterator
 
-pub struct IterItem<'a, const D: usize, C: Default, T> {
+pub struct IterItem<'a, const D: usize, C, T> {
     pub rect: Rect<D, C>,
     pub data: &'a T,
     pub dist: C,
+}
+
+impl<'a, const D: usize, C, T> IterItem<'a, D, C, T> {
+    fn new(rect: Rect<D, C>, data: &'a T, dist: C) -> Self {
+        Self { rect, data, dist }
+    }
 }
 
 impl<const D: usize, C, T: PartialEq> RTree<D, C, T>
@@ -508,17 +531,17 @@ impl<'a, const D: usize, C, T> StackNode<'a, D, C, T>
 where
     C: PartialOrd + Copy + Sub<Output = C> + Mul<Output = C> + Default,
 {
+    fn new(nodes: &'a [Node<D, C, T>], index: usize) -> Self {
+        Self { nodes, index }
+    }
+
     fn new_stack(root: &'a Option<Node<D, C, T>>, height: usize) -> Vec<StackNode<'a, D, C, T>> {
         let mut stack = Vec::with_capacity(height + 1);
         if let Some(root) = &root {
-            stack.push(StackNode {
-                nodes: match &root.data {
-                    Data::Nodes(nodes) => nodes,
-                    _ => unreachable!(),
-                },
-                index: 0,
-            });
+            let nodes = root.data.as_nodes().expect("unreachable");
+            stack.push(StackNode::new(nodes, 0));
         }
+
         stack
     }
 }
@@ -557,15 +580,12 @@ where
 
             match &stack.nodes[i].data {
                 Data::Nodes(nodes) => {
-                    let snode = StackNode { nodes, index: 0 };
+                    let snode = StackNode::new(nodes, 0);
                     self.stack.push(snode);
                 }
                 Data::Item(data) => {
-                    return Some(IterItem {
-                        rect: stack.nodes[i].rect,
-                        data,
-                        dist: Default::default(),
-                    });
+                    let item = IterItem::new(stack.nodes[i].rect, data, Default::default());
+                    return Some(item);
                 }
             }
         }
@@ -607,21 +627,14 @@ where
                 if !stack.nodes[i].rect.intersects(&self.rect) {
                     continue;
                 }
+
                 stack.index = i + 1;
-                if let Data::Item(data) = &stack.nodes[i].data {
-                    return Some(IterItem {
-                        rect: stack.nodes[i].rect,
-                        data,
-                        dist: Default::default(),
-                    });
+
+                if let Some(data) = &stack.nodes[i].data.as_item() {
+                    return Some(IterItem::new(stack.nodes[i].rect, data, Default::default()));
                 }
-                let snode = StackNode {
-                    nodes: match &stack.nodes[i].data {
-                        Data::Nodes(nodes) => nodes,
-                        _ => unreachable!(),
-                    },
-                    index: 0,
-                };
+
+                let snode = StackNode::new(stack.nodes[i].data.as_nodes().expect("unreachable"), 0);
                 self.stack.push(snode);
                 continue 'outer;
             }
@@ -634,6 +647,12 @@ where
 struct NearbyItem<'a, const D: usize, C, T> {
     dist: C,
     node: &'a Node<D, C, T>,
+}
+
+impl<'a, const D: usize, C, T> NearbyItem<'a, D, C, T> {
+    fn new(dist: C, node: &'a Node<D, C, T>) -> Self {
+        Self { dist, node }
+    }
 }
 
 impl<'a, const D: usize, C, T> PartialEq for NearbyItem<'a, D, C, T>
@@ -670,11 +689,10 @@ where
     fn new(root: &'a Option<Node<D, C, T>>, dist: F) -> NearbyIterator<'a, D, C, T, F> {
         let mut queue = Queue::new();
         if let Some(root) = root {
-            queue.push(NearbyItem {
-                dist: Default::default(),
-                node: root,
-            });
+            let item = NearbyItem::new(Default::default(), root);
+            queue.push(item);
         }
+
         NearbyIterator { queue, dist }
     }
 }
@@ -685,32 +703,23 @@ where
     F: FnMut(Rect<D, C>, Option<&'a T>) -> C,
 {
     type Item = IterItem<'a, D, C, T>;
+
     fn next(&mut self) -> Option<Self::Item> {
         while let Some(item) = self.queue.pop() {
             match &item.node.data {
                 Data::Item(data) => {
-                    return Some(IterItem {
-                        rect: item.node.rect,
-                        data,
-                        dist: item.dist,
-                    });
+                    return Some(IterItem::new(item.node.rect, data, item.dist));
                 }
                 Data::Nodes(nodes) => {
                     for node in nodes.iter() {
-                        self.queue.push(NearbyItem {
-                            dist: (self.dist)(
-                                node.rect,
-                                match &node.data {
-                                    Data::Item(data) => Some(data),
-                                    _ => None,
-                                },
-                            ),
-                            node,
-                        });
+                        let item =
+                            NearbyItem::new((self.dist)(node.rect, node.data.as_item()), node);
+                        self.queue.push(item);
                     }
                 }
             }
         }
+
         None
     }
 }
