@@ -571,21 +571,19 @@ where
             let i = stack.index;
             stack.index += 1;
 
-            if let Data::Item(data) = &stack.nodes[i].data {
-                return Some(IterItem {
-                    rect: stack.nodes[i].rect,
-                    data,
-                    dist: Default::default(),
-                });
+            match &stack.nodes[i].data {
+                Data::Nodes(nodes) => {
+                    let snode = StackNode { nodes, index: 0 };
+                    self.stack.push(snode);
+                }
+                Data::Item(data) => {
+                    return Some(IterItem {
+                        rect: stack.nodes[i].rect,
+                        data,
+                        dist: Default::default(),
+                    });
+                }
             }
-            let snode = StackNode {
-                nodes: match &stack.nodes[i].data {
-                    Data::Nodes(nodes) => nodes,
-                    _ => unreachable!(),
-                },
-                index: 0,
-            };
-            self.stack.push(snode);
         }
         None
     }
