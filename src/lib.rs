@@ -406,7 +406,7 @@ where
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
-pub struct RTree<const D: usize, C, T: PartialEq> {
+pub struct RTree<const D: usize, C, T> {
     root: Option<Node<D, C, T>>,
     length: usize,
     height: usize,
